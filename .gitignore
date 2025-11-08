@@ -5,3 +5,5 @@ dist/
 *.log
 .env
 "@ | Out-File -FilePath .gitignore -Encoding UTF8
+
+.package-lock.json
