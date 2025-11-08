@@ -1,0 +1,34 @@
+{
+  "name": "dam-react-hooks",
+  "version": "1.0.0",
+  "description": "React hooks library for DAM System API integration",
+  "main": "src/index.js",
+  "author": "Aubrey Osenda",
+  "license": "MIT",
+  "keywords": [
+    "react",
+    "hooks",
+    "dam",
+    "digital-asset-management",
+    "file-upload",
+    "image-transformation"
+  ],
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "echo 'No tests yet'",
+    "lint": "echo 'Linting disabled for now'"
+  },
+  "peerDependencies": {
+    "react": "^16.8.0 || ^17.0.0 || ^18.0.0"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.28.3",
+    "@babel/core": "^7.28.5",
+    "@babel/preset-env": "^7.28.5",
+    "@babel/preset-react": "^7.28.5"
+  }
+}
