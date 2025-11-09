@@ -1,12 +1,5 @@
-/**
- * DAM React Hooks Library
- * React hooks and components for DAM System integration
- * 
- * @author Aubrey Osenda
- * @version 1.0.0
- */
-
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import DAMClient from './DAMClient.js';
 
 // ==================== DAM CONTEXT ====================
 
@@ -15,26 +8,9 @@ const DAMContext = createContext(null);
 /**
  * DAM Provider Component
  * Wrap your app with this provider to use DAM hooks
- * 
- * @example
- * <DAMProvider config={{ apiUrl, keyId, keySecret }}>
- *   <App />
- * </DAMProvider>
  */
 export function DAMProvider({ config, children }) {
-  if (!config || !config.apiUrl || !config.keyId || !config.keySecret) {
-    throw new Error('DAMProvider requires config with apiUrl, keyId, and keySecret');
-  }
-
-  const [client] = useState(() => {
-    // Create client instance (assumes DAMClient is imported or available)
-    return {
-      apiUrl: config.apiUrl.replace(/\/$/, ''),
-      keyId: config.keyId,
-      keySecret: config.keySecret,
-      baseUrl: `${config.apiUrl.replace(/\/$/, '')}/api`,
-    };
-  });
+  const [client] = useState(() => new DAMClient(config));
 
   return (
     <DAMContext.Provider value={client}>
@@ -44,7 +20,7 @@ export function DAMProvider({ config, children }) {
 }
 
 /**
- * Hook to access DAM client configuration
+ * Hook to access DAM client
  */
 export function useDAMClient() {
   const context = useContext(DAMContext);
@@ -54,79 +30,24 @@ export function useDAMClient() {
   return context;
 }
 
-// ==================== API REQUEST HELPER ====================
-
-function useDAMRequest() {
-  const client = useDAMClient();
-
-  const request = useCallback(async (endpoint, options = {}) => {
-    const url = `${client.baseUrl}${endpoint}`;
-    const headers = {
-      'X-API-Key-ID': client.keyId,
-      'X-API-Key-Secret': client.keySecret,
-      ...options.headers,
-    };
-
-    if (!(options.body instanceof FormData)) {
-      headers['Content-Type'] = 'application/json';
-    }
-
-    const fetchOptions = {
-      method: options.method || 'GET',
-      headers,
-      ...options,
-    };
-
-    if (options.body && !(options.body instanceof FormData)) {
-      fetchOptions.body = JSON.stringify(options.body);
-    }
-
-    const response = await fetch(url, fetchOptions);
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.message || data.error || 'Request failed');
-    }
-
-    return data;
-  }, [client]);
-
-  return request;
-}
-
 // ==================== FILE HOOKS ====================
 
 /**
- * Hook for listing and managing files
- * 
- * @example
- * const { files, loading, error, refetch } = useFiles({ 
- *   folderId: 'folder-123',
- *   mimeType: 'image/*' 
- * });
+ * Hook for listing files using API key
  */
 export function useFiles(options = {}) {
+  const client = useDAMClient();
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pagination, setPagination] = useState(null);
-  const request = useDAMRequest();
 
   const fetchFiles = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const params = new URLSearchParams();
-      if (options.folderId) params.append('folder_id', options.folderId);
-      if (options.mimeType) params.append('mime_type', options.mimeType);
-      if (options.search) params.append('search', options.search);
-      if (options.limit) params.append('limit', options.limit);
-      if (options.offset) params.append('offset', options.offset);
-
-      const query = params.toString();
-      const data = await request(`/files${query ? '?' + query : ''}`);
-
+      const data = await client.getFiles(options);
       setFiles(data.data);
       setPagination(data.pagination);
     } catch (err) {
@@ -134,7 +55,7 @@ export function useFiles(options = {}) {
     } finally {
       setLoading(false);
     }
-  }, [request, options.folderId, options.mimeType, options.search, options.limit, options.offset]);
+  }, [client, JSON.stringify(options)]);
 
   useEffect(() => {
     fetchFiles();
@@ -150,13 +71,13 @@ export function useFiles(options = {}) {
 }
 
 /**
- * Hook for getting a single file
+ * Hook for getting a single file using API key
  */
 export function useFile(fileId) {
+  const client = useDAMClient();
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const request = useDAMRequest();
 
   const fetchFile = useCallback(async () => {
     if (!fileId) {
@@ -168,14 +89,14 @@ export function useFile(fileId) {
     setError(null);
 
     try {
-      const data = await request(`/files/${fileId}`);
+      const data = await client.getFile(fileId);
       setFile(data.data);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [request, fileId]);
+  }, [client, fileId]);
 
   useEffect(() => {
     fetchFile();
@@ -190,21 +111,13 @@ export function useFile(fileId) {
 }
 
 /**
- * Hook for file upload with progress tracking
- * 
- * @example
- * const { upload, uploading, progress, error } = useFileUpload();
- * 
- * const handleUpload = async (file) => {
- *   const result = await upload(file, { folderId: 'folder-123' });
- *   console.log('Uploaded:', result);
- * };
+ * Hook for file upload with progress tracking using API key
  */
 export function useFileUpload() {
+  const client = useDAMClient();
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState(null);
-  const client = useDAMClient();
 
   const upload = useCallback(async (file, options = {}) => {
     setUploading(true);
@@ -212,21 +125,10 @@ export function useFileUpload() {
     setError(null);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      if (options.folderId) {
-        formData.append('folder_id', options.folderId);
-      }
-
-      if (options.metadata) {
-        formData.append('metadata', JSON.stringify(options.metadata));
-      }
-
       // Use XMLHttpRequest for progress tracking
       const result = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        const url = `${client.baseUrl}/upload/single`;
+        const url = `${client.baseUrl}/public/single`;
 
         xhr.upload.addEventListener('progress', (e) => {
           if (e.lengthComputable) {
@@ -260,6 +162,16 @@ export function useFileUpload() {
         xhr.open('POST', url);
         xhr.setRequestHeader('X-API-Key-ID', client.keyId);
         xhr.setRequestHeader('X-API-Key-Secret', client.keySecret);
+        
+        const formData = new FormData();
+        formData.append('file', file);
+        if (options.folderId) {
+          formData.append('folder_id', options.folderId);
+        }
+        if (options.metadata) {
+          formData.append('metadata', JSON.stringify(options.metadata));
+        }
+
         xhr.send(formData);
       });
 
@@ -279,38 +191,9 @@ export function useFileUpload() {
     setError(null);
 
     try {
-      const formData = new FormData();
-      
-      files.forEach(file => {
-        formData.append('files', file);
-      });
-
-      if (options.folderId) {
-        formData.append('folder_id', options.folderId);
-      }
-
-      if (options.metadata) {
-        formData.append('metadata', JSON.stringify(options.metadata));
-      }
-
-      const url = `${client.baseUrl}/upload/multiple`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'X-API-Key-ID': client.keyId,
-          'X-API-Key-Secret': client.keySecret,
-        },
-        body: formData,
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || data.error || 'Upload failed');
-      }
-
+      const result = await client.uploadMultipleFiles(files, options);
       setProgress(100);
-      return data.data;
+      return result.data;
     } catch (err) {
       setError(err.message);
       throw err;
@@ -333,355 +216,74 @@ export function useFileUpload() {
 }
 
 /**
- * Hook for file operations (update, delete, move)
+ * Hook for file operations using API key
  */
 export function useFileOperations() {
-  const request = useDAMRequest();
+  const client = useDAMClient();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
-  const updateFile = useCallback(async (fileId, updates) => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const data = await request(`/files/${fileId}`, {
-        method: 'PUT',
-        body: updates,
-      });
-      return data.data;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [request]);
-
-  const moveFile = useCallback(async (fileId, folderId) => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const data = await request(`/files/${fileId}/move`, {
-        method: 'PUT',
-        body: { folder_id: folderId },
-      });
-      return data.data;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [request]);
 
   const deleteFile = useCallback(async (fileId) => {
     setLoading(true);
     setError(null);
 
     try {
-      await request(`/files/${fileId}`, {
-        method: 'DELETE',
-      });
+      await client.deleteFile(fileId);
     } catch (err) {
       setError(err.message);
       throw err;
     } finally {
       setLoading(false);
     }
-  }, [request]);
-
-  const deleteFiles = useCallback(async (fileIds) => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const data = await request('/files/bulk-delete', {
-        method: 'POST',
-        body: { file_ids: fileIds },
-      });
-      return data.data;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [request]);
+  }, [client]);
 
   return {
-    updateFile,
-    moveFile,
     deleteFile,
-    deleteFiles,
     loading,
     error,
   };
 }
-
-// ==================== FOLDER HOOKS ====================
-
-/**
- * Hook for listing and managing folders
- * 
- * @example
- * const { folders, loading, error, createFolder } = useFolders();
- */
-export function useFolders(options = {}) {
-  const [folders, setFolders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const request = useDAMRequest();
-
-  const fetchFolders = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const params = new URLSearchParams();
-      if (options.parentId !== undefined) {
-        params.append('parent_id', options.parentId);
-      }
-
-      const query = params.toString();
-      const data = await request(`/folders${query ? '?' + query : ''}`);
-
-      setFolders(data.data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [request, options.parentId]);
-
-  useEffect(() => {
-    fetchFolders();
-  }, [fetchFolders]);
-
-  const createFolder = useCallback(async (name, folderOptions = {}) => {
-    setError(null);
-
-    try {
-      const data = await request('/folders', {
-        method: 'POST',
-        body: {
-          name,
-          ...folderOptions,
-        },
-      });
-
-      await fetchFolders();
-      return data.data;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    }
-  }, [request, fetchFolders]);
-
-  const updateFolder = useCallback(async (folderId, updates) => {
-    setError(null);
-
-    try {
-      const data = await request(`/folders/${folderId}`, {
-        method: 'PUT',
-        body: updates,
-      });
-
-      await fetchFolders();
-      return data.data;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    }
-  }, [request, fetchFolders]);
-
-  const deleteFolder = useCallback(async (folderId) => {
-    setError(null);
-
-    try {
-      await request(`/folders/${folderId}`, {
-        method: 'DELETE',
-      });
-
-      await fetchFolders();
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    }
-  }, [request, fetchFolders]);
-
-  return {
-    folders,
-    loading,
-    error,
-    refetch: fetchFolders,
-    createFolder,
-    updateFolder,
-    deleteFolder,
-  };
-}
-
-/**
- * Hook for getting a single folder with details
- */
-export function useFolder(folderId) {
-  const [folder, setFolder] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const request = useDAMRequest();
-
-  const fetchFolder = useCallback(async () => {
-    if (!folderId) {
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const data = await request(`/folders/${folderId}`);
-      setFolder(data.data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [request, folderId]);
-
-  useEffect(() => {
-    fetchFolder();
-  }, [fetchFolder]);
-
-  return {
-    folder,
-    loading,
-    error,
-    refetch: fetchFolder,
-  };
-}
-
-// ==================== URL GENERATION HOOKS ====================
 
 /**
  * Hook for generating file URLs
  */
 export function useFileUrl(fileId, transformOptions = null) {
   const client = useDAMClient();
-
-  if (!fileId) return null;
-
-  if (!transformOptions) {
-    return `${client.apiUrl}/api/transform/${fileId}`;
-  }
-
-  const params = new URLSearchParams();
-  if (transformOptions.width) params.append('w', transformOptions.width);
-  if (transformOptions.height) params.append('h', transformOptions.height);
-  if (transformOptions.fit) params.append('fit', transformOptions.fit);
-  if (transformOptions.format) params.append('format', transformOptions.format);
-  if (transformOptions.quality) params.append('quality', transformOptions.quality);
-  if (transformOptions.blur) params.append('blur', transformOptions.blur);
-  if (transformOptions.grayscale) params.append('grayscale', 'true');
-  if (transformOptions.rotate) params.append('rotate', transformOptions.rotate);
-
-  const query = params.toString();
-  return `${client.apiUrl}/api/transform/${fileId}${query ? '?' + query : ''}`;
+  return client.getFileUrl(fileId, transformOptions);
 }
 
-// ==================== STATISTICS HOOKS ====================
-
 /**
- * Hook for dashboard statistics
+ * Hook for testing API connection
  */
-export function useDashboardStats() {
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
+export function useTestConnection() {
+  const client = useDAMClient();
+  const [testing, setTesting] = useState(false);
+  const [connected, setConnected] = useState(false);
   const [error, setError] = useState(null);
-  const request = useDAMRequest();
 
-  const fetchStats = useCallback(async () => {
-    setLoading(true);
+  const testConnection = useCallback(async () => {
+    setTesting(true);
     setError(null);
 
     try {
-      const data = await request('/stats/dashboard');
-      setStats(data.data);
+      await client.testConnection();
+      setConnected(true);
+      return true;
     } catch (err) {
       setError(err.message);
+      setConnected(false);
+      return false;
     } finally {
-      setLoading(false);
+      setTesting(false);
     }
-  }, [request]);
-
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+  }, [client]);
 
   return {
-    stats,
-    loading,
+    testConnection,
+    testing,
+    connected,
     error,
-    refetch: fetchStats,
   };
-}
-
-/**
- * Hook for storage statistics
- */
-export function useStorageStats() {
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const request = useDAMRequest();
-
-  const fetchStats = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const data = await request('/stats/storage');
-      setStats(data.data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [request]);
-
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
-
-  return {
-    stats,
-    loading,
-    error,
-    refetch: fetchStats,
-  };
-}
-
-// ==================== UTILITY HOOKS ====================
-
-/**
- * Hook for debounced search
- */
-export function useDebouncedSearch(initialValue = '', delay = 500) {
-  const [value, setValue] = useState(initialValue);
-  const [debouncedValue, setDebouncedValue] = useState(initialValue);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-
-  return [debouncedValue, value, setValue];
 }
 
 // ==================== EXPORTS ====================
@@ -693,10 +295,6 @@ export default {
   useFile,
   useFileUpload,
   useFileOperations,
-  useFolders,
-  useFolder,
   useFileUrl,
-  useDashboardStats,
-  useStorageStats,
-  useDebouncedSearch,
+  useTestConnection,
 };
